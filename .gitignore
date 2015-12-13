@@ -2,4 +2,5 @@
 /pkg/
 /src/golang.org/
 /src/google.golang.org/
+/home/frog/go-examples/src/oauth/google/get_token/get_token
 
