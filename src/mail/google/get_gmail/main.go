@@ -28,10 +28,23 @@ func main() {
 		m.GetMail()
 	    fmt.Printf( "ID = %s\n", m.Id )
 	    fmt.Printf( "   Subject   [%s]\n", m.Subject )
-		fmt.Printf( "   Sender    [%s]\n", m.Sender  )
+		
+//		fmt.Printf( "   Sender    [%s]\n", m.Sender  )
 //		fmt.Printf( "   Body      [%s]\n", m.Body    )
 //		fmt.Printf( "   Body(HTML)[%s]\n", m.GetBodyHTML() )
-		fmt.Printf( "   Body(TEXT)[%s]\n", m.GetBodyTEXT() )
+//		fmt.Printf( "   Body(TEXT)[%s]\n", m.GetBodyTEXT() )
+
+    	for _, a := range m.Attachments {
+    	
+    	    fmt.Printf( "    Attachment Id = %s\n", a.Id )
+    	    fmt.Printf( "    Attachment MimeType = %s\n", a.MimeType )
+    	    fmt.Printf( "    Attachment Filename = %s\n", a.Filename )
+    		
+			a.GetAttachment()
+			a.Save()
+//			fmt.Printf( "    Attachment Data = %v\n", a.Data )
+    	}
+
     }
 	
 }

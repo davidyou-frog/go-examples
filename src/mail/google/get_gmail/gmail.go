@@ -3,7 +3,7 @@ package main
 
 import (
     "os" 
-//    "fmt"
+    "fmt"
      "log"
  	"io/ioutil"
  	"encoding/json"
@@ -20,6 +20,14 @@ import (
 	"github.com/jaytaylor/html2text"
 )
 
+var DefaultAcceptAttachmentMimeTypes = []string{
+    "application/octet-stream",
+	"image/png",
+	"image/jpg",
+	"image/jpeg",
+	"image/gif",
+}
+
 type GmailManager struct {
 
     email      string
@@ -30,6 +38,8 @@ type GmailManager struct {
 	
 	srv        *gmail.Service
 	msgs       []*GmailMessage 
+	
+	acceptAttachmentMimeTypes []string
 }
 
 func NewGmailManager( email string ) GmailManager {
@@ -39,6 +49,7 @@ func NewGmailManager( email string ) GmailManager {
     gm.ctx   = context.Background()
 	gm.email = email
 	gm.msgs  = []*GmailMessage{} 
+	gm.acceptAttachmentMimeTypes = DefaultAcceptAttachmentMimeTypes
 	
 	return gm
 }
@@ -104,12 +115,12 @@ func (gm *GmailManager) GetMailList() []*GmailMessage {
     if err != nil {
 	    log.Fatalf("Unable to retrieve messages: %v", err)
     }
-  
+
 	for _, m := range res.Messages {
-	    msg :=  NewGmailMessage( m.Id ) 
-		msg.gm = gm
-		
+
+	    msg :=  NewGmailMessage( gm, m.Id ) 
 	    gm.msgs = append( gm.msgs, &msg )
+
     }
 	
 	return gm.msgs
@@ -117,19 +128,24 @@ func (gm *GmailManager) GetMailList() []*GmailMessage {
 }
 
 type GmailMessage struct {
+
 	gm          *GmailManager
 	
-    Id          string
-	Subject     string
-	Sender      string
-	Body        string
+    Id             string
+	Subject        string
+	Sender         string
+	Body           string
+	
+	Attachments []*GmailAttachment
+
 }
 
+func NewGmailMessage( gm *GmailManager, id string ) GmailMessage {
 
-func NewGmailMessage( id string ) GmailMessage {
-
-    m   := GmailMessage{} 
-	m.Id = id
+    m   :=  GmailMessage{}
+    m.gm          =  gm	
+	m.Id          =  id
+	m.Attachments = []*GmailAttachment{}
 	
 	return m
 }
@@ -167,7 +183,40 @@ func ( m *GmailMessage ) getBody(parts []*gmail.MessagePart) string {
 	return ""
 }
 
-func ( m *GmailMessage) GetMail() {
+func ( m *GmailMessage ) isAcceptAttachmentMimeType(mime string) bool {
+
+	for _, mt := range m.gm.acceptAttachmentMimeTypes {
+		if mt == mime {
+			return true
+		}
+	}
+
+	return false
+}
+
+
+func ( m *GmailMessage ) getAttachments(parts []*gmail.MessagePart) {
+
+	for _, part := range parts {
+		if len(part.Parts) == 0 {
+		    
+			fmt.Printf( "part.MimeType = %s\n", part.MimeType )
+
+			if m.isAcceptAttachmentMimeType( part.MimeType ) {
+
+	            a  :=  NewGmailAttachment( m, 
+				                           part.Body.AttachmentId,
+                                           part.MimeType,
+					                       part.Filename )
+										   
+	            m.Attachments = append( m.Attachments, &a )
+            } 
+		}
+	}
+	
+}
+
+func ( m *GmailMessage ) GetMail() {
 
     req := m.gm.srv.Users.Messages.Get( m.gm.email, m.Id )
 	res, err := req.Format("full").Do()
@@ -178,15 +227,18 @@ func ( m *GmailMessage) GetMail() {
 	m.Subject = m.getSubject( res.Payload.Headers )
 	m.Sender  = m.getSender ( res.Payload.Headers )
 	m.Body    = m.getBody   ( res.Payload.Parts   )
-
+	
+	m.getAttachments ( res.Payload.Parts   ) 
+	
 }
+
 
 func ( m *GmailMessage) GetBodyHTML() string {
 
-    html,_ :=  base64.URLEncoding.DecodeString(m.Body)
+    data,_ :=  base64.URLEncoding.DecodeString(m.Body)
 //	html   := base64.StdEncoding.EncodeToString(data)
 
-	return string(html)
+	return string(data)
 }
 
 func ( m *GmailMessage) GetBodyTEXT() string {
@@ -196,3 +248,60 @@ func ( m *GmailMessage) GetBodyTEXT() string {
 	return string(text)
 	
 }
+
+type GmailAttachment struct {
+
+	msg        *GmailMessage
+	
+    Id          string
+	MimeType    string
+	Filename    string
+	
+	Data        []byte
+	
+}
+
+func NewGmailAttachment( m *GmailMessage, id, mimetype, filename string ) GmailAttachment {
+
+    a   := GmailAttachment{} 
+	a.msg      = m 
+	a.Id       = id
+	a.MimeType = mimetype
+	a.Filename = filename 
+	
+	return a
+	
+}
+
+func ( a *GmailAttachment) GetAttachment() {
+
+    m   := a.msg 
+    gm  := m.gm
+    req := gm.srv.Users.Messages.Attachments.Get( gm.email, m.Id, a.Id )
+	res, err := req.Do()
+    if err != nil {
+	    log.Fatalf("Unable to retrieve attachment: %v", err)
+    }
+	
+	a.Data, _ = base64.URLEncoding.DecodeString( res.Data )
+	
+}
+
+func ( a *GmailAttachment) SaveAs( filename string ) {
+
+    f, err := os.Create(filename)
+    if err != nil {
+        log.Fatalf("Unable to save as : %v", err)
+     }
+     defer f.Close()
+	 
+	 f.Write( a.Data )
+	 
+}
+
+func ( a *GmailAttachment) Save() {
+
+    a.SaveAs( a.Filename )
+
+}
+
